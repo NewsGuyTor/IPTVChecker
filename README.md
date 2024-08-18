@@ -4,18 +4,19 @@
 
 ## Overview
 
-IPTV Stream Checker is a command-line tool designed to check the status of channels in an IPTV M3U8 playlist. It verifies if the streams are alive, captures screenshots, and provides detailed information about video and audio streams, including codec, resolution, and bitrate. 
+IPTV Stream Checker is a command-line tool designed to check the status of channels in an IPTV M3U8 playlist. It verifies if the streams are alive, captures screenshots, provides detailed information about video and audio streams, and identifies any potential issues like low framerates or mislabeled channels.
 
-<img width="794" alt="screenshot" src="https://github.com/user-attachments/assets/5a290d91-efe8-4389-ad26-a08c59cf1157">
-
+<img width="794" alt="screenshot" src="https://github.com/user-attachments/assets/ffa84de1-f644-44b5-9d7d-92e32652a2be">
 
 ## Features
 
 - **Check Stream Status:** Verify if IPTV streams are alive or dead.
 - **Capture Screenshots:** Capture screenshots from live streams.
-- **Detailed Stream Info:** Retrieve and display video codec, resolution, and audio bitrate.
-- **Custom User-Agent:** Uses `IPTVChecker 1.0` as the user agent for HTTP requests.
 - **Group Filter:** Option to check specific groups within the M3U8 playlist.
+- **Detailed Stream Info:** Retrieve and display video codec, resolution, framerate, and audio bitrate.
+- **Low Framerate Detection:** Identifies and lists channels with framerates at 30fps or below.
+- **Mislabeled Channel Detection:** Detects channels with resolutions that do not match their labels (e.g., "1080p" labeled as "4K").
+- **Custom User-Agent:** Uses `IPTVChecker 1.0` as the user agent for HTTP requests.
 
 ## Installation
 
@@ -62,12 +63,26 @@ python IPTV_checker.py /path/to/your/playlist.m3u8 --group "SPORT HD" --timeout 
 The script will output the status of each channel in the following format:
 
 ```bash
-4/42 Channel Name - Alive: ✓ ||| Video: 1080p H264 - Audio: 159 kbps AAC
+1/5 ✓ Channel Name | Video: 1080p60 H264 - Audio: 159 kbps AAC
 ```
 
-## Screenshots
+### Low Framerate Channels
 
-<!-- Add screenshots of the tool in action here -->
+After processing, the script lists any channels with framerates of 30fps or below:
+
+```bash
+Low Framerate Channels:
+1/5 EGGBALL TV HD - 25fps
+```
+
+### Mislabeled Channels
+
+The script also detects channels with incorrect labels:
+
+```bash
+Mislabeled Channels:
+3/5 Sports5 FHD - Expected 1080p, got 4K
+```
 
 ## License
 
