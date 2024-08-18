@@ -19,7 +19,7 @@ def print_header():
 """ 
     print(header_text)
     print("\033[93mWelcome to the IPTV Stream Checker!\n\033[0m")
-    print("\033[92mUse -h for help on how to use this tool.\n\033[0m")
+    print("\033[93mUse -h for help on how to use this tool.\033[0m")
 
 def setup_logging(verbose_level):
     if verbose_level == 1:
@@ -36,10 +36,13 @@ def handle_sigint(signum, frame):
 signal.signal(signal.SIGINT, handle_sigint)
 
 def check_channel_status(url, timeout, retries=6):
+    headers = {
+        'User-Agent': 'IPTVChecker 1.0'
+    }
     delay = 2  # Initial delay in seconds
     for attempt in range(retries):
         try:
-            with requests.get(url, stream=True, timeout=(5, timeout)) as resp:
+            with requests.get(url, stream=True, timeout=(5, timeout), headers=headers) as resp:
                 if resp.status_code == 429:
                     logging.debug(f"Rate limit exceeded, retrying in {delay} seconds...")
                     time.sleep(delay)
@@ -111,10 +114,10 @@ def get_stream_info(url):
         else:
             resolution = "Unknown"
 
-        return f"{resolution} {codec_name}" if codec_name and resolution else "Unknown"
+        return f"{resolution} {codec_name}" if codec_name and resolution else "Unknown", resolution
     except subprocess.TimeoutExpired:
         logging.error(f"Timeout when trying to get stream info for {url}")
-        return "Unknown"
+        return "Unknown", "Unknown"
 
 def get_audio_bitrate(url):
     command = [
@@ -140,6 +143,24 @@ def get_audio_bitrate(url):
     except subprocess.TimeoutExpired:
         logging.error(f"Timeout when trying to get audio bitrate for {url}")
         return "Unknown"
+
+def check_label_mismatch(channel_name, resolution):
+    channel_name_lower = channel_name.lower()
+    mismatches = []
+
+    if "4k" in channel_name_lower or "uhd" in channel_name_lower:
+        if resolution != "4K":
+            mismatches.append(f"\033[91mExpected 4K, got {resolution}\033[0m")
+    elif "1080p" in channel_name_lower or "fhd" in channel_name_lower:
+        if resolution != "1080p":
+            mismatches.append(f"\033[91mExpected 1080p, got {resolution}\033[0m")
+    elif "hd" in channel_name_lower:
+        if resolution not in ["1080p", "720p"]:
+            mismatches.append(f"\033[91mExpected 720p or 1080p, got {resolution}\033[0m")
+    elif resolution == "4K":
+        mismatches.append(f"\033[91m4K channel not labeled as such\033[0m")
+
+    return mismatches
 
 def load_processed_channels(log_file):
     processed_channels = set()
@@ -173,6 +194,7 @@ def parse_m3u8_file(file_path, group_title, timeout, log_file):
 
     processed_channels, last_index = load_processed_channels(log_file)
     current_channel = last_index
+    mislabeled_channels = []
 
     try:
         with open(file_path, 'r', encoding='utf-8') as file:
@@ -195,12 +217,24 @@ def parse_m3u8_file(file_path, group_title, timeout, log_file):
                             video_info = "Unknown"
                             audio_info = "Unknown"
                             if status == 'Alive':
-                                video_info = get_stream_info(next_line)
+                                video_info, resolution = get_stream_info(next_line)
                                 audio_info = get_audio_bitrate(next_line)
+                                mismatches = check_label_mismatch(channel_name, resolution)
+                                if mismatches:
+                                    mislabeled_channels.append(f"{current_channel}/{total_channels} {channel_name} - {', '.join(mismatches)}")
                                 file_name = f"{current_channel}-{channel_name.replace('/', '-')}"  # Replace '/' to avoid path issues
                                 capture_frame(next_line, output_folder, file_name)
                             console_log_entry(current_channel, total_channels, channel_name, status, video_info, audio_info)
                             processed_channels.add(identifier)
+                            
+            if mislabeled_channels:
+                print("\n\033[91mMislabeled Channels Detected:\033[0m")
+                for entry in mislabeled_channels:
+                    print(f"{entry}")
+                logging.info("Mislabeled Channels Detected:")
+                for entry in mislabeled_channels:
+                    logging.info(entry)
+
     except FileNotFoundError:
         logging.error(f"File not found: {file_path}. Please check the path and try again.")
     except Exception as e:
