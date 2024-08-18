@@ -14,11 +14,11 @@ def print_header():
 ██║██████╔╝   ██║   ██║   ██║    ██║     ███████║█████╗  ██║     █████╔╝ █████╗  ██████╔╝  
 ██║██╔═══╝    ██║   ╚██╗ ██╔╝    ██║     ██╔══██║██╔══╝  ██║     ██╔═██╗ ██╔══╝  ██╔══██╗  
 ██║██║        ██║    ╚████╔╝     ╚██████╗██║  ██║███████╗╚██████╗██║  ██╗███████╗██║  ██║  
+╚═╝╚═╝        ██║    ╚████╔╝     ╚██████╗██║  ██║███████╗╚██████╗██║  ██╗███████╗██║  ██║  
 ╚═╝╚═╝        ╚═╝     ╚═══╝       ╚═════╝╚═╝  ╚═╝╚══════╝ ╚═════╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝  
 \033[0m    
 """ 
     print(header_text)
-    print("\033[93mWelcome to the IPTV Stream Checker!\n\033[0m")
     print("\033[93mUse -h for help on how to use this tool.\033[0m")
 
 def setup_logging(verbose_level):
@@ -86,13 +86,14 @@ def capture_frame(url, output_path, file_name):
 def get_stream_info(url):
     command = [
         'ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries', 
-        'stream=codec_name,width,height', '-of', 'default=noprint_wrappers=1', url
+        'stream=codec_name,width,height,r_frame_rate', '-of', 'default=noprint_wrappers=1', url
     ]
     try:
         result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
         output = result.stdout.decode()
         codec_name = resolution = None
         width = height = None
+        fps = None
         for line in output.splitlines():
             if line.startswith("codec_name="):
                 codec_name = line.split('=')[1].upper()
@@ -100,8 +101,13 @@ def get_stream_info(url):
                 width = int(line.split('=')[1])
             elif line.startswith("height="):
                 height = int(line.split('=')[1])
+            elif line.startswith("r_frame_rate="):
+                fps_data = line.split('=')[1]
+                if fps_data and '/' in fps_data:
+                    numerator, denominator = map(int, fps_data.split('/'))
+                    fps = round(numerator / denominator)
 
-        # Determine resolution string
+        # Determine resolution string with FPS
         if width and height:
             if width >= 3840 and height >= 2160:
                 resolution = "4K"
@@ -111,10 +117,13 @@ def get_stream_info(url):
                 resolution = "720p"
             else:
                 resolution = "SD"
-        else:
-            resolution = "Unknown"
 
-        return f"{resolution} {codec_name}" if codec_name and resolution else "Unknown", resolution
+        if resolution and fps:
+            resolution_fps = f"{resolution}{fps}"
+        else:
+            resolution_fps = resolution if resolution else "Unknown"
+
+        return f"{resolution_fps} {codec_name}" if codec_name and resolution_fps else "Unknown", resolution
     except subprocess.TimeoutExpired:
         logging.error(f"Timeout when trying to get stream info for {url}")
         return "Unknown", "Unknown"
@@ -146,18 +155,20 @@ def get_audio_bitrate(url):
 
 def check_label_mismatch(channel_name, resolution):
     channel_name_lower = channel_name.lower()
+    resolution_base = resolution[:-2]  # Extract the base resolution without the FPS
+
     mismatches = []
 
     if "4k" in channel_name_lower or "uhd" in channel_name_lower:
-        if resolution != "4K":
-            mismatches.append(f"\033[91mExpected 4K, got {resolution}\033[0m")
+        if resolution_base != "4K":
+            mismatches.append(f"\033[91mExpected 4K, got {resolution_base}\033[0m")
     elif "1080p" in channel_name_lower or "fhd" in channel_name_lower:
-        if resolution != "1080p":
-            mismatches.append(f"\033[91mExpected 1080p, got {resolution}\033[0m")
+        if resolution_base != "1080p":
+            mismatches.append(f"\033[91mExpected 1080p, got {resolution_base}\033[0m")
     elif "hd" in channel_name_lower:
-        if resolution not in ["1080p", "720p"]:
-            mismatches.append(f"\033[91mExpected 720p or 1080p, got {resolution}\033[0m")
-    elif resolution == "4K":
+        if resolution_base not in ["1080p", "720p"]:
+            mismatches.append(f"\033[91mExpected 720p or 1080p, got {resolution_base}\033[0m")
+    elif resolution_base == "4K":
         mismatches.append(f"\033[91m4K channel not labeled as such\033[0m")
 
     return mismatches
@@ -183,8 +194,12 @@ def write_log_entry(log_file, entry):
 def console_log_entry(current_channel, total_channels, channel_name, status, video_info, audio_info):
     color = "\033[92m" if status == 'Alive' else "\033[91m"
     status_symbol = '✓' if status == 'Alive' else '✕'
-    print(f"{color}{current_channel}/{total_channels} {channel_name} - Alive: {status_symbol} ||| Video: {video_info} - Audio: {audio_info}\033[0m")
-    logging.info(f"{current_channel}/{total_channels} {channel_name} - Alive: {status_symbol} ||| Video: {video_info} - Audio: {audio_info}")
+    if status == 'Alive':
+        print(f"{color}{current_channel}/{total_channels} {channel_name} - Alive: {status_symbol} | Video: {video_info} - Audio: {audio_info}\033[0m")
+        logging.info(f"{current_channel}/{total_channels} {channel_name} - Alive: {status_symbol} | Video: {video_info} - Audio: {audio_info}")
+    else:
+        print(f"{color}{current_channel}/{total_channels} {channel_name} - Alive: {status_symbol}\033[0m")
+        logging.info(f"{current_channel}/{total_channels} {channel_name} - Alive: {status_symbol}")
 
 def parse_m3u8_file(file_path, group_title, timeout, log_file):
     base_playlist_name = os.path.basename(file_path).split('.')[0]
