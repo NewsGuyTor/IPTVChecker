@@ -80,6 +80,67 @@ def capture_frame(url, output_path, file_name):
         logging.error(f"Timeout when trying to capture frame for {file_name}")
         return False
 
+def get_stream_info(url):
+    command = [
+        'ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries', 
+        'stream=codec_name,width,height', '-of', 'default=noprint_wrappers=1', url
+    ]
+    try:
+        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
+        output = result.stdout.decode()
+        codec_name = resolution = None
+        width = height = None
+        for line in output.splitlines():
+            if line.startswith("codec_name="):
+                codec_name = line.split('=')[1].upper()
+            elif line.startswith("width="):
+                width = int(line.split('=')[1])
+            elif line.startswith("height="):
+                height = int(line.split('=')[1])
+
+        # Determine resolution string
+        if width and height:
+            if width >= 3840 and height >= 2160:
+                resolution = "4K"
+            elif width >= 1920 and height >= 1080:
+                resolution = "1080p"
+            elif width >= 1280 and height >= 720:
+                resolution = "720p"
+            else:
+                resolution = "SD"
+        else:
+            resolution = "Unknown"
+
+        return f"{resolution} {codec_name}" if codec_name and resolution else "Unknown"
+    except subprocess.TimeoutExpired:
+        logging.error(f"Timeout when trying to get stream info for {url}")
+        return "Unknown"
+
+def get_audio_bitrate(url):
+    command = [
+        'ffprobe', '-v', 'error', '-select_streams', 'a:0', '-show_entries',
+        'stream=codec_name,bit_rate', '-of', 'default=noprint_wrappers=1', url
+    ]
+    try:
+        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
+        output = result.stdout.decode()
+        audio_bitrate = None
+        codec_name = None
+        for line in output.splitlines():
+            if line.startswith("bit_rate="):
+                bitrate_value = line.split('=')[1]
+                if bitrate_value.isdigit():
+                    audio_bitrate = int(bitrate_value) // 1000  # Convert to kbps
+                else:
+                    audio_bitrate = 'N/A'
+            elif line.startswith("codec_name="):
+                codec_name = line.split('=')[1].upper()
+
+        return f"{audio_bitrate} kbps {codec_name}" if codec_name and audio_bitrate else "Unknown"
+    except subprocess.TimeoutExpired:
+        logging.error(f"Timeout when trying to get audio bitrate for {url}")
+        return "Unknown"
+
 def load_processed_channels(log_file):
     processed_channels = set()
     last_index = 0
@@ -98,12 +159,11 @@ def write_log_entry(log_file, entry):
     with open(log_file, 'a') as f:
         f.write(entry + "\n")
 
-def console_log_entry(current_channel, total_channels, channel_name, status, screen_shot):
-    color = "\033[92m" if screen_shot else "\033[91m"
-    screenshot_status = '✓' if screen_shot else '✕'
+def console_log_entry(current_channel, total_channels, channel_name, status, video_info, audio_info):
+    color = "\033[92m" if status == 'Alive' else "\033[91m"
     status_symbol = '✓' if status == 'Alive' else '✕'
-    print(f"{color}{current_channel}/{total_channels} {channel_name} - Alive: {status_symbol} - Screenshot: {screenshot_status}\033[0m")
-    logging.info(f"{current_channel}/{total_channels} {channel_name} - Status: {status}, Screenshot: {screenshot_status}")
+    print(f"{color}{current_channel}/{total_channels} {channel_name} - Alive: {status_symbol} ||| Video: {video_info} - Audio: {audio_info}\033[0m")
+    logging.info(f"{current_channel}/{total_channels} {channel_name} - Alive: {status_symbol} ||| Video: {video_info} - Audio: {audio_info}")
 
 def parse_m3u8_file(file_path, group_title, timeout, log_file):
     base_playlist_name = os.path.basename(file_path).split('.')[0]
@@ -132,11 +192,14 @@ def parse_m3u8_file(file_path, group_title, timeout, log_file):
                         if identifier not in processed_channels:
                             current_channel += 1
                             status = check_channel_status(next_line, timeout)
-                            screenshot_taken = False
+                            video_info = "Unknown"
+                            audio_info = "Unknown"
                             if status == 'Alive':
+                                video_info = get_stream_info(next_line)
+                                audio_info = get_audio_bitrate(next_line)
                                 file_name = f"{current_channel}-{channel_name.replace('/', '-')}"  # Replace '/' to avoid path issues
-                                screenshot_taken = capture_frame(next_line, output_folder, file_name)
-                            console_log_entry(current_channel, total_channels, channel_name, status, screenshot_taken)
+                                capture_frame(next_line, output_folder, file_name)
+                            console_log_entry(current_channel, total_channels, channel_name, status, video_info, audio_info)
                             processed_channels.add(identifier)
     except FileNotFoundError:
         logging.error(f"File not found: {file_path}. Please check the path and try again.")
