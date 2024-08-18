@@ -91,7 +91,7 @@ def get_stream_info(url):
     try:
         result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
         output = result.stdout.decode()
-        codec_name = resolution = None
+        codec_name = None
         width = height = None
         fps = None
         for line in output.splitlines():
@@ -108,6 +108,7 @@ def get_stream_info(url):
                     fps = round(numerator / denominator)
 
         # Determine resolution string with FPS
+        resolution = "Unknown"
         if width and height:
             if width >= 3840 and height >= 2160:
                 resolution = "4K"
@@ -118,15 +119,12 @@ def get_stream_info(url):
             else:
                 resolution = "SD"
 
-        if resolution and fps:
-            resolution_fps = f"{resolution}{fps}"
-        else:
-            resolution_fps = resolution if resolution else "Unknown"
+        resolution_fps = f"{resolution}{fps}" if resolution != "Unknown" and fps else resolution
 
-        return f"{resolution_fps} {codec_name}" if codec_name and resolution_fps else "Unknown", resolution
+        return f"{resolution_fps} {codec_name}" if codec_name and resolution_fps else "Unknown", resolution, fps
     except subprocess.TimeoutExpired:
         logging.error(f"Timeout when trying to get stream info for {url}")
-        return "Unknown", "Unknown"
+        return "Unknown", "Unknown", None
 
 def get_audio_bitrate(url):
     command = [
@@ -155,20 +153,20 @@ def get_audio_bitrate(url):
 
 def check_label_mismatch(channel_name, resolution):
     channel_name_lower = channel_name.lower()
-    resolution_base = resolution[:-2]  # Extract the base resolution without the FPS
 
     mismatches = []
 
+    # Compare resolution ignoring the framerate part
     if "4k" in channel_name_lower or "uhd" in channel_name_lower:
-        if resolution_base != "4K":
-            mismatches.append(f"\033[91mExpected 4K, got {resolution_base}\033[0m")
+        if resolution != "4K":
+            mismatches.append(f"\033[91mExpected 4K, got {resolution}\033[0m")
     elif "1080p" in channel_name_lower or "fhd" in channel_name_lower:
-        if resolution_base != "1080p":
-            mismatches.append(f"\033[91mExpected 1080p, got {resolution_base}\033[0m")
+        if resolution != "1080p":
+            mismatches.append(f"\033[91mExpected 1080p, got {resolution}\033[0m")
     elif "hd" in channel_name_lower:
-        if resolution_base not in ["1080p", "720p"]:
-            mismatches.append(f"\033[91mExpected 720p or 1080p, got {resolution_base}\033[0m")
-    elif resolution_base == "4K":
+        if resolution not in ["1080p", "720p"]:
+            mismatches.append(f"\033[91mExpected 720p or 1080p, got {resolution}\033[0m")
+    elif resolution == "4K":
         mismatches.append(f"\033[91m4K channel not labeled as such\033[0m")
 
     return mismatches
@@ -195,11 +193,11 @@ def console_log_entry(current_channel, total_channels, channel_name, status, vid
     color = "\033[92m" if status == 'Alive' else "\033[91m"
     status_symbol = '✓' if status == 'Alive' else '✕'
     if status == 'Alive':
-        print(f"{color}{current_channel}/{total_channels} {channel_name} - Alive: {status_symbol} | Video: {video_info} - Audio: {audio_info}\033[0m")
-        logging.info(f"{current_channel}/{total_channels} {channel_name} - Alive: {status_symbol} | Video: {video_info} - Audio: {audio_info}")
+        print(f"{color}{current_channel}/{total_channels} {status_symbol} {channel_name} | Video: {video_info} - Audio: {audio_info}\033[0m")
+        logging.info(f"{current_channel}/{total_channels} {status_symbol} {channel_name} | Video: {video_info} - Audio: {audio_info}")
     else:
-        print(f"{color}{current_channel}/{total_channels} {channel_name} - Alive: {status_symbol}\033[0m")
-        logging.info(f"{current_channel}/{total_channels} {channel_name} - Alive: {status_symbol}")
+        print(f"{color}{current_channel}/{total_channels} {status_symbol} {channel_name}\033[0m")
+        logging.info(f"{current_channel}/{total_channels} {status_symbol} {channel_name}")
 
 def parse_m3u8_file(file_path, group_title, timeout, log_file):
     base_playlist_name = os.path.basename(file_path).split('.')[0]
@@ -210,6 +208,7 @@ def parse_m3u8_file(file_path, group_title, timeout, log_file):
     processed_channels, last_index = load_processed_channels(log_file)
     current_channel = last_index
     mislabeled_channels = []
+    low_framerate_channels = []
 
     try:
         with open(file_path, 'r', encoding='utf-8') as file:
@@ -231,10 +230,13 @@ def parse_m3u8_file(file_path, group_title, timeout, log_file):
                             status = check_channel_status(next_line, timeout)
                             video_info = "Unknown"
                             audio_info = "Unknown"
+                            fps = None
                             if status == 'Alive':
-                                video_info, resolution = get_stream_info(next_line)
+                                video_info, resolution, fps = get_stream_info(next_line)
                                 audio_info = get_audio_bitrate(next_line)
                                 mismatches = check_label_mismatch(channel_name, resolution)
+                                if fps is not None and fps <= 30:
+                                    low_framerate_channels.append(f"{current_channel}/{total_channels} {channel_name} | {fps}fps")
                                 if mismatches:
                                     mislabeled_channels.append(f"{current_channel}/{total_channels} {channel_name} - {', '.join(mismatches)}")
                                 file_name = f"{current_channel}-{channel_name.replace('/', '-')}"  # Replace '/' to avoid path issues
@@ -242,6 +244,14 @@ def parse_m3u8_file(file_path, group_title, timeout, log_file):
                             console_log_entry(current_channel, total_channels, channel_name, status, video_info, audio_info)
                             processed_channels.add(identifier)
                             
+            if low_framerate_channels:
+                print("\n\033[93mLow Framerate Channels Detected (30fps and below):\033[0m")
+                for entry in low_framerate_channels:
+                    print(f"{entry}")
+                logging.info("Low Framerate Channels Detected:")
+                for entry in low_framerate_channels:
+                    logging.info(entry)
+
             if mislabeled_channels:
                 print("\n\033[91mMislabeled Channels Detected:\033[0m")
                 for entry in mislabeled_channels:
