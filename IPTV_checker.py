@@ -14,11 +14,11 @@ def print_header():
 ██║██████╔╝   ██║   ██║   ██║    ██║     ███████║█████╗  ██║     █████╔╝ █████╗  ██████╔╝  
 ██║██╔═══╝    ██║   ╚██╗ ██╔╝    ██║     ██╔══██║██╔══╝  ██║     ██╔═██╗ ██╔══╝  ██╔══██╗  
 ██║██║        ██║    ╚████╔╝     ╚██████╗██║  ██║███████╗╚██████╗██║  ██╗███████╗██║  ██║  
-╚═╝╚═╝        ██║    ╚████╔╝     ╚██████╗██║  ██║███████╗╚██████╗██║  ██╗███████╗██║  ██║  
 ╚═╝╚═╝        ╚═╝     ╚═══╝       ╚═════╝╚═╝  ╚═╝╚══════╝ ╚═════╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝  
 \033[0m    
 """ 
     print(header_text)
+    print("\033[93mWelcome to the IPTV Stream Checker!\n\033[0m")
     print("\033[93mUse -h for help on how to use this tool.\033[0m")
 
 def setup_logging(verbose_level):
@@ -236,16 +236,16 @@ def parse_m3u8_file(file_path, group_title, timeout, log_file):
                                 audio_info = get_audio_bitrate(next_line)
                                 mismatches = check_label_mismatch(channel_name, resolution)
                                 if fps is not None and fps <= 30:
-                                    low_framerate_channels.append(f"{current_channel}/{total_channels} {channel_name} | {fps}fps")
+                                    low_framerate_channels.append(f"{current_channel}/{total_channels} {channel_name} - \033[91m{fps}fps\033[0m")
                                 if mismatches:
-                                    mislabeled_channels.append(f"{current_channel}/{total_channels} {channel_name} - {', '.join(mismatches)}")
+                                    mislabeled_channels.append(f"{current_channel}/{total_channels} {channel_name} - \033[91m{', '.join(mismatches)}\033[0m")
                                 file_name = f"{current_channel}-{channel_name.replace('/', '-')}"  # Replace '/' to avoid path issues
                                 capture_frame(next_line, output_folder, file_name)
                             console_log_entry(current_channel, total_channels, channel_name, status, video_info, audio_info)
                             processed_channels.add(identifier)
                             
             if low_framerate_channels:
-                print("\n\033[93mLow Framerate Channels Detected (30fps and below):\033[0m")
+                print("\n\033[93mLow Framerate Channels:\033[0m")
                 for entry in low_framerate_channels:
                     print(f"{entry}")
                 logging.info("Low Framerate Channels Detected:")
@@ -253,7 +253,7 @@ def parse_m3u8_file(file_path, group_title, timeout, log_file):
                     logging.info(entry)
 
             if mislabeled_channels:
-                print("\n\033[91mMislabeled Channels Detected:\033[0m")
+                print("\n\033[93mMislabeled Channels:\033[0m")
                 for entry in mislabeled_channels:
                     print(f"{entry}")
                 logging.info("Mislabeled Channels Detected:")
