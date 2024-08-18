@@ -6,7 +6,8 @@
 
 IPTV Stream Checker is a command-line tool designed to check the status of channels in an IPTV M3U8 playlist. It verifies if the streams are alive, captures screenshots, and provides detailed information about video and audio streams, including codec, resolution, and bitrate. 
 
-![IPTV Checker Demo](demo.gif)  <!-- Add a demo GIF or screenshot here -->
+<img width="794" alt="screenshot" src="https://github.com/user-attachments/assets/5a290d91-efe8-4389-ad26-a08c59cf1157">
+
 
 ## Features
 
