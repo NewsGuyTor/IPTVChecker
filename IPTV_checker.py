@@ -41,6 +41,46 @@ def check_channel_status(url, timeout, retries=6):
         'User-Agent': 'IPTVChecker 1.0'
     }
     delay = 2  # Initial delay in seconds
+    min_data_threshold = 1024 * 50  # Minimum data threshold set to 50KB for considering the stream as alive
+    for attempt in range(retries):
+        try:
+            with requests.get(url, stream=True, timeout=(5, timeout), headers=headers) as resp:
+                if resp.status_code == 429:
+                    logging.debug(f"Rate limit exceeded, retrying in {delay} seconds...")
+                    time.sleep(delay)
+                    delay *= 2  # Exponential backoff
+                    continue
+                elif resp.status_code == 200:
+                    content_type = resp.headers.get('Content-Type', '')
+                    if 'video/mp2t' in content_type or '.ts' in url:
+                        data_received = 0
+                        for chunk in resp.iter_content(1024 * 1024):  # Reading in chunks of 1MB
+                            data_received += len(chunk)
+                            if data_received >= min_data_threshold:
+                                return 'Alive'
+                        logging.debug(f"Insufficient data received: {data_received} bytes")
+                        return 'Dead'
+                    else:
+                        logging.debug(f"Content-Type not recognized as stream: {content_type}")
+                        return 'Dead'
+                else:
+                    logging.debug(f"HTTP status code not OK: {resp.status_code}")
+                    return 'Dead'
+        except requests.ConnectionError:
+            logging.error("Connection error occurred")
+            return 'Dead'
+        except requests.Timeout:
+            logging.error("Timeout occurred")
+            return 'Dead'
+        except requests.RequestException as e:
+            logging.error(f"Request failed: {str(e)}")
+            return 'Dead'
+    logging.error("Maximum retries exceeded for checking channel status")
+    return 'Dead'
+    headers = {
+        'User-Agent': 'IPTVChecker 1.0'
+    }
+    delay = 2  # Initial delay in seconds
     for attempt in range(retries):
         try:
             with requests.get(url, stream=True, timeout=(5, timeout), headers=headers) as resp:
