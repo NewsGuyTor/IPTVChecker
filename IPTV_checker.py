@@ -92,7 +92,7 @@ def check_channel_status(url, timeout, retries=6, extended_timeout=None):
 
 def capture_frame(url, output_path, file_name):
     command = [
-        'ffmpeg', '-i', url, '-ss', '00:00:02', '-frames:v', '1',
+        'ffmpeg', '-y', '-i', url, '-ss', '00:00:02', '-frames:v', '1',
         os.path.join(output_path, f"{file_name}.png")
     ]
     try:
@@ -102,6 +102,7 @@ def capture_frame(url, output_path, file_name):
     except subprocess.TimeoutExpired:
         logging.error(f"Timeout when trying to capture frame for {file_name}")
         return False
+
 
 def get_stream_info(url):
     command = [
