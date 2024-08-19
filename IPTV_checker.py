@@ -36,85 +36,59 @@ def handle_sigint(signum, frame):
 
 signal.signal(signal.SIGINT, handle_sigint)
 
-def check_channel_status(url, timeout, retries=6):
+def check_channel_status(url, timeout, retries=6, extended_timeout=None):
     headers = {
         'User-Agent': 'IPTVChecker 1.0'
     }
     delay = 2  # Initial delay in seconds
     min_data_threshold = 1024 * 50  # Minimum data threshold set to 50KB for considering the stream as alive
-    for attempt in range(retries):
-        try:
-            with requests.get(url, stream=True, timeout=(5, timeout), headers=headers) as resp:
-                if resp.status_code == 429:
-                    logging.debug(f"Rate limit exceeded, retrying in {delay} seconds...")
-                    time.sleep(delay)
-                    delay *= 2  # Exponential backoff
-                    continue
-                elif resp.status_code == 200:
-                    content_type = resp.headers.get('Content-Type', '')
-                    if 'video/mp2t' in content_type or '.ts' in url:
-                        data_received = 0
-                        for chunk in resp.iter_content(1024 * 1024):  # Reading in chunks of 1MB
-                            data_received += len(chunk)
-                            if data_received >= min_data_threshold:
-                                return 'Alive'
-                        logging.debug(f"Insufficient data received: {data_received} bytes")
-                        return 'Dead'
+
+    def attempt_check(current_timeout):
+        for attempt in range(retries):
+            try:
+                with requests.get(url, stream=True, timeout=(5, current_timeout), headers=headers) as resp:
+                    if resp.status_code == 429:
+                        logging.debug(f"Rate limit exceeded, retrying in {delay} seconds...")
+                        time.sleep(delay)
+                        delay *= 2  # Exponential backoff
+                        continue
+                    elif resp.status_code == 200:
+                        content_type = resp.headers.get('Content-Type', '')
+                        if 'video/mp2t' in content_type or '.ts' in url:
+                            data_received = 0
+                            for chunk in resp.iter_content(1024 * 1024):  # Reading in chunks of 1MB
+                                data_received += len(chunk)
+                                if data_received >= min_data_threshold:
+                                    return 'Alive'
+                            logging.debug(f"Insufficient data received: {data_received} bytes")
+                            return 'Dead'
+                        else:
+                            logging.debug(f"Content-Type not recognized as stream: {content_type}")
+                            return 'Dead'
                     else:
-                        logging.debug(f"Content-Type not recognized as stream: {content_type}")
+                        logging.debug(f"HTTP status code not OK: {resp.status_code}")
                         return 'Dead'
-                else:
-                    logging.debug(f"HTTP status code not OK: {resp.status_code}")
-                    return 'Dead'
-        except requests.ConnectionError:
-            logging.error("Connection error occurred")
-            return 'Dead'
-        except requests.Timeout:
-            logging.error("Timeout occurred")
-            return 'Dead'
-        except requests.RequestException as e:
-            logging.error(f"Request failed: {str(e)}")
-            return 'Dead'
-    logging.error("Maximum retries exceeded for checking channel status")
-    return 'Dead'
-    headers = {
-        'User-Agent': 'IPTVChecker 1.0'
-    }
-    delay = 2  # Initial delay in seconds
-    for attempt in range(retries):
-        try:
-            with requests.get(url, stream=True, timeout=(5, timeout), headers=headers) as resp:
-                if resp.status_code == 429:
-                    logging.debug(f"Rate limit exceeded, retrying in {delay} seconds...")
-                    time.sleep(delay)
-                    delay *= 2  # Exponential backoff
-                    continue
-                elif resp.status_code == 200:
-                    content_type = resp.headers.get('Content-Type', '')
-                    if 'video/mp2t' in content_type or '.ts' in url:
-                        data_received = 0
-                        for chunk in resp.iter_content(1024 * 1024):
-                            data_received += len(chunk)
-                            if data_received > 100 * 1024:
-                                return 'Alive'
-                        return 'Dead'
-                    else:
-                        logging.debug(f"Content-Type not recognized as stream: {content_type}")
-                        return 'Dead'
-                else:
-                    logging.debug(f"HTTP status code not OK: {resp.status_code}")
-                    return 'Dead'
-        except requests.ConnectionError:
-            logging.error("Connection error occurred")
-            return 'Dead'
-        except requests.Timeout:
-            logging.error("Timeout occurred")
-            return 'Dead'
-        except requests.RequestException as e:
-            logging.error(f"Request failed: {str(e)}")
-            return 'Dead'
-    logging.error("Maximum retries exceeded for checking channel status")
-    return 'Dead'
+            except requests.ConnectionError:
+                logging.error("Connection error occurred")
+                return 'Dead'
+            except requests.Timeout:
+                logging.error("Timeout occurred")
+                return 'Dead'
+            except requests.RequestException as e:
+                logging.error(f"Request failed: {str(e)}")
+                return 'Dead'
+        logging.error("Maximum retries exceeded for checking channel status")
+        return 'Dead'
+
+    # First attempt with the initial timeout
+    status = attempt_check(timeout)
+
+    # If the channel is detected as dead and extended_timeout is specified, retry with extended timeout
+    if status == 'Dead' and extended_timeout:
+        logging.info(f"Channel initially detected as dead. Retrying with an extended timeout of {extended_timeout} seconds.")
+        status = attempt_check(extended_timeout)
+
+    return status
 
 def capture_frame(url, output_path, file_name):
     command = [
@@ -254,7 +228,7 @@ def console_log_entry(current_channel, total_channels, channel_name, status, vid
             print(f"{color}{current_channel}/{total_channels} {status_symbol} {channel_name}\033[0m")
             logging.info(f"{current_channel}/{total_channels} {status_symbol} {channel_name}")
 
-def parse_m3u8_file(file_path, group_title, timeout, log_file):
+def parse_m3u8_file(file_path, group_title, timeout, log_file, extended_timeout):
     base_playlist_name = os.path.basename(file_path).split('.')[0]
     group_name = group_title.replace('|', '').replace(' ', '') if group_title else 'AllGroups'
     output_folder = f"{base_playlist_name}_{group_name}_screenshots"
@@ -300,7 +274,7 @@ def parse_m3u8_file(file_path, group_title, timeout, log_file):
                         identifier = f"{channel_name} {next_line}"
                         if identifier not in processed_channels:
                             current_channel += 1
-                            status = check_channel_status(next_line, timeout)
+                            status = check_channel_status(next_line, timeout, extended_timeout=extended_timeout)
                             video_info = "Unknown"
                             audio_info = "Unknown"
                             fps = None
@@ -346,6 +320,7 @@ def main():
     parser.add_argument("--group", type=str, default=None, help="Specific group title to check within the playlist")
     parser.add_argument("--timeout", type=float, default=10.0, help="Timeout in seconds for checking channel status")
     parser.add_argument("-v", "--verbose", action="count", default=0, help="Increase output verbosity (1 for info, 2 for debug)")
+    parser.add_argument("--extended", type=int, nargs='?', const=10, default=None, help="Enable extended timeout check for dead channels. Default is 10 seconds if used without specifying time.")
 
     args = parser.parse_args()
 
@@ -353,7 +328,7 @@ def main():
     group_name = args.group.replace('|', '').replace(' ', '') if args.group else 'AllGroups'  # Define group_name based on args.group
     log_file_name = f"{os.path.basename(args.playlist_path).split('.')[0]}_{group_name}_checklog.txt"
 
-    parse_m3u8_file(args.playlist_path, args.group, args.timeout, log_file_name)
+    parse_m3u8_file(args.playlist_path, args.group, args.timeout, log_file_name, extended_timeout=args.extended)
 
 if __name__ == "__main__":
     main()
