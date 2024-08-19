@@ -6,6 +6,7 @@ import sys
 import time
 import subprocess
 import logging
+import shutil
 
 def print_header():
     header_text = """
@@ -48,13 +49,18 @@ def check_channel_status(url, timeout, retries=6):
                     time.sleep(delay)
                     delay *= 2  # Exponential backoff
                     continue
-                elif resp.status_code == 200 and 'video/mp2t' in resp.headers.get('Content-Type', ''):
-                    data_received = 0
-                    for chunk in resp.iter_content(1024 * 1024):
-                        data_received += len(chunk)
-                        if data_received > 100 * 1024:
-                            return 'Alive'
-                    return 'Dead'
+                elif resp.status_code == 200:
+                    content_type = resp.headers.get('Content-Type', '')
+                    if 'video/mp2t' in content_type or '.ts' in url:
+                        data_received = 0
+                        for chunk in resp.iter_content(1024 * 1024):
+                            data_received += len(chunk)
+                            if data_received > 100 * 1024:
+                                return 'Alive'
+                        return 'Dead'
+                    else:
+                        logging.debug(f"Content-Type not recognized as stream: {content_type}")
+                        return 'Dead'
                 else:
                     logging.debug(f"HTTP status code not OK: {resp.status_code}")
                     return 'Dead'
@@ -189,15 +195,24 @@ def write_log_entry(log_file, entry):
     with open(log_file, 'a') as f:
         f.write(entry + "\n")
 
-def console_log_entry(current_channel, total_channels, channel_name, status, video_info, audio_info):
+def console_log_entry(current_channel, total_channels, channel_name, status, video_info, audio_info, max_name_length, use_padding):
     color = "\033[92m" if status == 'Alive' else "\033[91m"
     status_symbol = '✓' if status == 'Alive' else '✕'
-    if status == 'Alive':
-        print(f"{color}{current_channel}/{total_channels} {status_symbol} {channel_name} | Video: {video_info} - Audio: {audio_info}\033[0m")
-        logging.info(f"{current_channel}/{total_channels} {status_symbol} {channel_name} | Video: {video_info} - Audio: {audio_info}")
+    if use_padding:
+        name_padding = ' ' * (max_name_length - len(channel_name) + 3)  # +3 for additional spaces
     else:
-        print(f"{color}{current_channel}/{total_channels} {status_symbol} {channel_name}\033[0m")
-        logging.info(f"{current_channel}/{total_channels} {status_symbol} {channel_name}")
+        name_padding = ''
+    if status == 'Alive':
+        print(f"{color}{current_channel}/{total_channels} {status_symbol} {channel_name}{name_padding} | Video: {video_info} - Audio: {audio_info}\033[0m")
+        logging.info(f"{current_channel}/{total_channels} {status_symbol} {channel_name}{name_padding} | Video: {video_info} - Audio: {audio_info}")
+    else:
+        if use_padding:
+            # Include the | for dead links only when padding is added
+            print(f"{color}{current_channel}/{total_channels} {status_symbol} {channel_name}{name_padding} |\033[0m")
+            logging.info(f"{current_channel}/{total_channels} {status_symbol} {channel_name}{name_padding} |")
+        else:
+            print(f"{color}{current_channel}/{total_channels} {status_symbol} {channel_name}\033[0m")
+            logging.info(f"{current_channel}/{total_channels} {status_symbol} {channel_name}")
 
 def parse_m3u8_file(file_path, group_title, timeout, log_file):
     base_playlist_name = os.path.basename(file_path).split('.')[0]
@@ -209,6 +224,11 @@ def parse_m3u8_file(file_path, group_title, timeout, log_file):
     current_channel = last_index
     mislabeled_channels = []
     low_framerate_channels = []
+    max_name_length = 0
+    use_padding = True
+
+    # Get console width
+    console_width = shutil.get_terminal_size((80, 20)).columns
 
     try:
         with open(file_path, 'r', encoding='utf-8') as file:
@@ -217,6 +237,19 @@ def parse_m3u8_file(file_path, group_title, timeout, log_file):
 
             logging.info(f"Loading channels from {file_path} with group '{group_title}'...")
             logging.info(f"Total channels matching group '{group_title}': {total_channels}\n")
+
+            # Calculate the maximum channel name length and check if the formatted line will fit in the console width
+            for i in range(len(lines)):
+                line = lines[i].strip()
+                if line.startswith('#EXTINF') and (group_title in line if group_title else True):
+                    if i + 1 < len(lines):
+                        channel_name = line.split(',', 1)[1].strip() if ',' in line else "Unknown Channel"
+                        max_name_length = max(max_name_length, len(channel_name))
+
+            # Estimate if the line will fit in the console width
+            max_line_length = max_name_length + len("1/5 ✓ | Video: 1080p50 H264 - Audio: 160 kbps AAC") + 3  # 3 for extra padding
+            if max_line_length > console_width:
+                use_padding = False
 
             for i in range(len(lines)):
                 line = lines[i].strip()
@@ -241,7 +274,7 @@ def parse_m3u8_file(file_path, group_title, timeout, log_file):
                                     mislabeled_channels.append(f"{current_channel}/{total_channels} {channel_name} - \033[91m{', '.join(mismatches)}\033[0m")
                                 file_name = f"{current_channel}-{channel_name.replace('/', '-')}"  # Replace '/' to avoid path issues
                                 capture_frame(next_line, output_folder, file_name)
-                            console_log_entry(current_channel, total_channels, channel_name, status, video_info, audio_info)
+                            console_log_entry(current_channel, total_channels, channel_name, status, video_info, audio_info, max_name_length, use_padding)
                             processed_channels.add(identifier)
                             
             if low_framerate_channels:
