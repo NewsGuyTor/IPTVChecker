@@ -256,7 +256,7 @@ def console_log_entry(current_channel, total_channels, channel_name, status, vid
             print(f"{color}{current_channel}/{total_channels} {status_symbol} {channel_name}\033[0m")
             logging.info(f"{current_channel}/{total_channels} {status_symbol} {channel_name}")
 
-def parse_m3u8_file(file_path, group_title, timeout, log_file, extended_timeout, split=False):
+def parse_m3u8_file(file_path, group_title, timeout, log_file, extended_timeout, split=False, rename=False):
     base_playlist_name = os.path.basename(file_path).split('.')[0]
     group_name = group_title.replace('|', '').replace(' ', '') if group_title else 'AllGroups'
     output_folder = f"{base_playlist_name}_{group_name}_screenshots"
@@ -319,6 +319,11 @@ def parse_m3u8_file(file_path, group_title, timeout, log_file, extended_timeout,
                                     mislabeled_channels.append(f"{current_channel}/{total_channels} {channel_name} - \033[91m{', '.join(mismatches)}\033[0m")
                                 file_name = f"{current_channel}-{channel_name.replace('/', '-')}"  # Replace '/' to avoid path issues
                                 capture_frame(next_line, output_folder, file_name)
+                                
+                                if rename:
+                                    renamed_channel_name = f"{channel_name} ({resolution} {fps}fps {video_info.split()[-1]} - {audio_info})"
+                                    line = line.replace(channel_name, renamed_channel_name)
+
                                 if split:
                                     working_channels.append((line, next_line))
                             else:
@@ -342,6 +347,15 @@ def parse_m3u8_file(file_path, group_title, timeout, log_file, extended_timeout,
                         dead_file.write(entry[1] + "\n")
                 logging.info(f"Working channels playlist saved to {working_playlist_path}")
                 logging.info(f"Dead channels playlist saved to {dead_playlist_path}")
+            elif rename:  # Save the renamed playlist directly if split is not enabled
+                renamed_playlist_path = f"{base_playlist_name}_renamed.m3u8"
+                with open(renamed_playlist_path, 'w', encoding='utf-8') as renamed_file:
+                    renamed_file.write("#EXTM3U\n")
+                    for i in range(len(lines)):
+                        if lines[i].strip().startswith("#EXTINF"):
+                            renamed_file.write(lines[i])
+                            renamed_file.write(lines[i+1])
+                logging.info(f"Renamed playlist saved to {renamed_playlist_path}")
 
             if low_framerate_channels:
                 print("\n\033[93mLow Framerate Channels:\033[0m")
@@ -372,9 +386,9 @@ def main():
     parser.add_argument("-group", "-g", type=str, default=None, help="Specific group title to check within the playlist")
     parser.add_argument("-timeout", "-t", type=float, default=10.0, help="Timeout in seconds for checking channel status")
     parser.add_argument("-v", action="count", default=0, help="Increase output verbosity (-v for info, -vv for debug)")
-    parser.add_argument("-debug", action="store_true", help="Enable debug mode (equivalent to -vv)")
     parser.add_argument("-extended", "-e", type=int, nargs='?', const=10, default=None, help="Enable extended timeout check for dead channels. Default is 10 seconds if used without specifying time.")
     parser.add_argument("-split", "-s", action="store_true", help="Create separate playlists for working and dead channels")
+    parser.add_argument("-rename", "-r", action="store_true", help="Rename alive channels to include video and audio info")
 
     args = parser.parse_args()
 
@@ -391,7 +405,7 @@ def main():
     group_name = args.group.replace('|', '').replace(' ', '') if args.group else 'AllGroups'
     log_file_name = f"{os.path.basename(args.playlist).split('.')[0]}_{group_name}_checklog.txt"
 
-    parse_m3u8_file(args.playlist, args.group, args.timeout, log_file_name, extended_timeout=args.extended, split=args.split)
+    parse_m3u8_file(args.playlist, args.group, args.timeout, log_file_name, extended_timeout=args.extended, split=args.split, rename=args.rename)
 
 if __name__ == "__main__":
     main()
