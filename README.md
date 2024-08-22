@@ -48,26 +48,28 @@ python IPTV_checker.py /path/to/your/playlist.m3u8
 
 ### Options
 
-- **`--group`**: Specify a group title to check within the playlist.
-- **`--timeout`**: Set a timeout in seconds for checking the channel status.
-- **`--extended [seconds]`**: Enable an extended timeout check for channels detected as dead. If specified without a value, defaults to 10 seconds. This option allows you to retry dead channels with a longer timeout.
-- **`-v` or `--v`**: Increase output verbosity. Use `-v` for info level or `-vv` for debug level.
+- **`-group` or `-g`**: Specify a group title to check within the playlist.
+- **`-timeout` or `-t`**: Set a timeout in seconds for checking the channel status.
+- **`-extended` or `-e [seconds]`**: Enable an extended timeout check for channels detected as dead. If specified without a value, defaults to 10 seconds. This option allows you to retry dead channels with a longer timeout.
+- **`-split` or `-s`**: Create separate playlists for working and dead channels.
+- **`-v`**: Increase output verbosity to `INFO` level.
+- **`-vv`** or **`-debug`**: Increase output verbosity to `DEBUG` level.
 
 ### Examples
 
 1. **Standard Check**:
    ```bash
-   python IPTV_checker.py /path/to/your/playlist.m3u8 --group "SPORT HD" -vv
+   python IPTV_checker.py /path/to/your/playlist.m3u8 -group "SPORT HD"
    ```
 
-2. **Check with Extended Timeout of 10 Seconds**:
+2. **Check with Extended Timeout of 10 Seconds and debug**:
    ```bash
-   python IPTV_checker.py /path/to/your/playlist.m3u8 --group "SPORT HD" --extended -vv
+   python IPTV_checker.py /path/to/your/playlist.m3u8 -group "SPORT HD" -extended 15 -vv
    ```
 
-3. **Check with Extended Timeout of 30 Seconds**:
+3. **Split Playlists into Working and Dead Channels**:
    ```bash
-   python IPTV_checker.py /path/to/your/playlist.m3u8 --group "SPORT HD" --extended 30 -vv
+   python IPTV_checker.py /path/to/your/playlist.m3u8 -group "SPORT HD" -split
    ```
 
 ### Output Format
