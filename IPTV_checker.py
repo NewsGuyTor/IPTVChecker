@@ -40,28 +40,39 @@ def check_channel_status(url, timeout, retries=6, extended_timeout=None):
     headers = {
         'User-Agent': 'IPTVChecker 1.0'
     }
-    delay = 2  # Initial delay in seconds
-    min_data_threshold = 1024 * 50  # Minimum data threshold set to 50KB for considering the stream as alive
+    min_data_threshold = 1024 * 500  # 500KB minimum threshold
+    initial_timeout = 5
+    max_timeout = timeout
 
     def attempt_check(current_timeout):
+        accumulated_data = 0
+        stable_connection = True
         for attempt in range(retries):
             try:
-                with requests.get(url, stream=True, timeout=(5, current_timeout), headers=headers) as resp:
+                with requests.get(url, stream=True, timeout=(initial_timeout, current_timeout), headers=headers) as resp:
                     if resp.status_code == 429:
-                        logging.debug(f"Rate limit exceeded, retrying in {delay} seconds...")
-                        time.sleep(delay)
-                        delay *= 2  # Exponential backoff
+                        logging.debug(f"Rate limit exceeded, retrying...")
+                        time.sleep(2)
                         continue
                     elif resp.status_code == 200:
                         content_type = resp.headers.get('Content-Type', '')
-                        if 'video/mp2t' in content_type or '.ts' in url:
-                            data_received = 0
-                            for chunk in resp.iter_content(1024 * 1024):  # Reading in chunks of 1MB
-                                data_received += len(chunk)
-                                if data_received >= min_data_threshold:
+                        logging.debug(f"Content-Type: {content_type}")
+
+                        if 'video/mp2t' in content_type or '.ts' in url or 'application/vnd.apple.mpegurl' in content_type:
+                            for chunk in resp.iter_content(1024 * 1024):  # 1MB chunks
+                                if not chunk:
+                                    stable_connection = False
+                                    break
+
+                                accumulated_data += len(chunk)
+                                if accumulated_data >= min_data_threshold:
+                                    logging.debug(f"Data received: {accumulated_data} bytes")
                                     return 'Alive'
-                            logging.debug(f"Insufficient data received: {data_received} bytes")
-                            return 'Dead'
+
+                            logging.debug(f"Data received: {accumulated_data} bytes")
+                            if not stable_connection:
+                                logging.debug("Unstable connection detected")
+                                return 'Dead'
                         else:
                             logging.debug(f"Content-Type not recognized as stream: {content_type}")
                             return 'Dead'
@@ -77,6 +88,7 @@ def check_channel_status(url, timeout, retries=6, extended_timeout=None):
             except requests.RequestException as e:
                 logging.error(f"Request failed: {str(e)}")
                 return 'Dead'
+
         logging.error("Maximum retries exceeded for checking channel status")
         return 'Dead'
 
@@ -88,7 +100,22 @@ def check_channel_status(url, timeout, retries=6, extended_timeout=None):
         logging.info(f"Channel initially detected as dead. Retrying with an extended timeout of {extended_timeout} seconds.")
         status = attempt_check(extended_timeout)
 
+    # Final Verification using ffmpeg/ffprobe for streams marked alive
+    if status == 'Alive':
+        try:
+            command = [
+                'ffmpeg', '-i', url, '-t', '5', '-f', 'null', '-'
+            ]
+            ffmpeg_result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15)
+            if ffmpeg_result.returncode != 0:
+                logging.debug(f"ffmpeg failed to read stream; marking as dead")
+                status = 'Dead'
+        except subprocess.TimeoutExpired:
+            logging.error(f"Timeout when trying to verify stream with ffmpeg for {url}")
+            status = 'Dead'
+
     return status
+
 
 def capture_frame(url, output_path, file_name):
     command = [
@@ -229,7 +256,7 @@ def console_log_entry(current_channel, total_channels, channel_name, status, vid
             print(f"{color}{current_channel}/{total_channels} {status_symbol} {channel_name}\033[0m")
             logging.info(f"{current_channel}/{total_channels} {status_symbol} {channel_name}")
 
-def parse_m3u8_file(file_path, group_title, timeout, log_file, extended_timeout):
+def parse_m3u8_file(file_path, group_title, timeout, log_file, extended_timeout, split=False):
     base_playlist_name = os.path.basename(file_path).split('.')[0]
     group_name = group_title.replace('|', '').replace(' ', '') if group_title else 'AllGroups'
     output_folder = f"{base_playlist_name}_{group_name}_screenshots"
@@ -241,6 +268,9 @@ def parse_m3u8_file(file_path, group_title, timeout, log_file, extended_timeout)
     low_framerate_channels = []
     max_name_length = 0
     use_padding = True
+
+    working_channels = []
+    dead_channels = []
 
     # Get console width
     console_width = shutil.get_terminal_size((80, 20)).columns
@@ -289,9 +319,30 @@ def parse_m3u8_file(file_path, group_title, timeout, log_file, extended_timeout)
                                     mislabeled_channels.append(f"{current_channel}/{total_channels} {channel_name} - \033[91m{', '.join(mismatches)}\033[0m")
                                 file_name = f"{current_channel}-{channel_name.replace('/', '-')}"  # Replace '/' to avoid path issues
                                 capture_frame(next_line, output_folder, file_name)
+                                if split:
+                                    working_channels.append((line, next_line))
+                            else:
+                                if split:
+                                    dead_channels.append((line, next_line))
                             console_log_entry(current_channel, total_channels, channel_name, status, video_info, audio_info, max_name_length, use_padding)
                             processed_channels.add(identifier)
-                            
+
+            if split:
+                working_playlist_path = f"{base_playlist_name}_working.m3u8"
+                dead_playlist_path = f"{base_playlist_name}_dead.m3u8"
+                with open(working_playlist_path, 'w', encoding='utf-8') as working_file:
+                    working_file.write("#EXTM3U\n")
+                    for entry in working_channels:
+                        working_file.write(entry[0] + "\n")
+                        working_file.write(entry[1] + "\n")
+                with open(dead_playlist_path, 'w', encoding='utf-8') as dead_file:
+                    dead_file.write("#EXTM3U\n")
+                    for entry in dead_channels:
+                        dead_file.write(entry[0] + "\n")
+                        dead_file.write(entry[1] + "\n")
+                logging.info(f"Working channels playlist saved to {working_playlist_path}")
+                logging.info(f"Dead channels playlist saved to {dead_playlist_path}")
+
             if low_framerate_channels:
                 print("\n\033[93mLow Framerate Channels:\033[0m")
                 for entry in low_framerate_channels:
@@ -317,19 +368,30 @@ def main():
     print_header()
 
     parser = argparse.ArgumentParser(description="Check the status of channels in an IPTV M3U8 playlist and capture frames of live channels.")
-    parser.add_argument("playlist_path", type=str, help="Path to the M3U8 playlist file")
-    parser.add_argument("--group", type=str, default=None, help="Specific group title to check within the playlist")
-    parser.add_argument("--timeout", type=float, default=10.0, help="Timeout in seconds for checking channel status")
-    parser.add_argument("-v", "--verbose", action="count", default=0, help="Increase output verbosity (1 for info, 2 for debug)")
-    parser.add_argument("--extended", type=int, nargs='?', const=10, default=None, help="Enable extended timeout check for dead channels. Default is 10 seconds if used without specifying time.")
+    parser.add_argument("playlist", type=str, help="Path to the M3U8 playlist file")
+    parser.add_argument("-group", "-g", type=str, default=None, help="Specific group title to check within the playlist")
+    parser.add_argument("-timeout", "-t", type=float, default=10.0, help="Timeout in seconds for checking channel status")
+    parser.add_argument("-v", action="count", default=0, help="Increase output verbosity (-v for info, -vv for debug)")
+    parser.add_argument("-debug", action="store_true", help="Enable debug mode (equivalent to -vv)")
+    parser.add_argument("-extended", "-e", type=int, nargs='?', const=10, default=None, help="Enable extended timeout check for dead channels. Default is 10 seconds if used without specifying time.")
+    parser.add_argument("-split", "-s", action="store_true", help="Create separate playlists for working and dead channels")
 
     args = parser.parse_args()
 
-    setup_logging(args.verbose)
-    group_name = args.group.replace('|', '').replace(' ', '') if args.group else 'AllGroups'  # Define group_name based on args.group
-    log_file_name = f"{os.path.basename(args.playlist_path).split('.')[0]}_{group_name}_checklog.txt"
+    # Set up logging based on verbosity level
+    if args.debug:
+        logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+    elif args.v == 1:
+        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    elif args.v >= 2:
+        logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+    else:
+        logging.basicConfig(level=logging.CRITICAL)  # Only critical errors will be logged by default.
 
-    parse_m3u8_file(args.playlist_path, args.group, args.timeout, log_file_name, extended_timeout=args.extended)
+    group_name = args.group.replace('|', '').replace(' ', '') if args.group else 'AllGroups'
+    log_file_name = f"{os.path.basename(args.playlist).split('.')[0]}_{group_name}_checklog.txt"
+
+    parse_m3u8_file(args.playlist, args.group, args.timeout, log_file_name, extended_timeout=args.extended, split=args.split)
 
 if __name__ == "__main__":
     main()
