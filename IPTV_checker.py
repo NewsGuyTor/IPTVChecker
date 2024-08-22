@@ -393,9 +393,7 @@ def main():
     args = parser.parse_args()
 
     # Set up logging based on verbosity level
-    if args.debug:
-        logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
-    elif args.v == 1:
+    if args.v == 1:
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     elif args.v >= 2:
         logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
