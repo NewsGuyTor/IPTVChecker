@@ -55,7 +55,7 @@ python IPTV_checker.py /path/to/your/playlist.m3u8
 - **`-split` or `-s`**: Create separate playlists for working and dead channels.
 - **`-rename` or `-r`**: Rename alive channels to include video and audio information in the playlist.
 - **`-v`**: Increase output verbosity to `INFO` level.
-- **`-vv` or `-debug`**: Increase output verbosity to `DEBUG` level.
+- **`-vv`**: Increase output verbosity to `DEBUG` level.
 
 ### Examples
 
@@ -91,7 +91,7 @@ python IPTV_checker.py /path/to/your/playlist.m3u8
 
 7. **Enable Debug Mode for Detailed Output**:
    ```bash
-   python IPTV_checker.py /path/to/your/playlist.m3u8 -debug
+   python IPTV_checker.py /path/to/your/playlist.m3u8 -vv
    ```
    
 ### Output Format
