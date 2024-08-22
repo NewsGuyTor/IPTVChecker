@@ -11,6 +11,7 @@ IPTV Stream Checker is a command-line tool designed to check the status of chann
 ## Features
 
 - **Check Stream Status:** Verify if IPTV streams are alive or dead.
+- **Split Playlist:** Split into separate playlists for working and dead channels.
 - **Capture Screenshots:** Capture screenshots from live streams.
 - **Group Filter:** Option to check specific groups within the M3U8 playlist.
 - **Detailed Stream Info:** Retrieve and display video codec, resolution, framerate, and audio bitrate.
