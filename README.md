@@ -53,26 +53,47 @@ python IPTV_checker.py /path/to/your/playlist.m3u8
 - **`-timeout` or `-t`**: Set a timeout in seconds for checking the channel status.
 - **`-extended` or `-e [seconds]`**: Enable an extended timeout check for channels detected as dead. If specified without a value, defaults to 10 seconds. This option allows you to retry dead channels with a longer timeout.
 - **`-split` or `-s`**: Create separate playlists for working and dead channels.
+- **`-rename` or `-r`**: Rename alive channels to include video and audio information in the playlist.
 - **`-v`**: Increase output verbosity to `INFO` level.
-- **`-vv`** or **`-debug`**: Increase output verbosity to `DEBUG` level.
+- **`-vv` or `-debug`**: Increase output verbosity to `DEBUG` level.
 
 ### Examples
 
-1. **Standard Check**:
+1. **Standard Check with Default Settings**:
+   ```bash
+   python IPTV_checker.py /path/to/your/playlist.m3u8
+   ```
+
+2. **Check a Specific Group**:
    ```bash
    python IPTV_checker.py /path/to/your/playlist.m3u8 -group "SPORT HD"
    ```
 
-2. **Check with Extended Timeout of 10 Seconds and debug**:
+3. **Check with Extended Timeout**:
    ```bash
-   python IPTV_checker.py /path/to/your/playlist.m3u8 -group "SPORT HD" -extended 15 -vv
+   python IPTV_checker.py /path/to/your/playlist.m3u8 -extended 30
    ```
 
-3. **Split Playlists into Working and Dead Channels**:
+4. **Split Playlist into Working and Dead Channels**:
    ```bash
-   python IPTV_checker.py /path/to/your/playlist.m3u8 -group "SPORT HD" -split
+   python IPTV_checker.py /path/to/your/playlist.m3u8 -split
    ```
 
+5. **Rename Working Channels with Video and Audio Info**:
+   ```bash
+   python IPTV_checker.py /path/to/your/playlist.m3u8 -rename
+   ```
+
+6. **Split Playlist and Rename Working Channels**:
+   ```bash
+   python IPTV_checker.py /path/to/your/playlist.m3u8 -split -rename
+   ```
+
+7. **Enable Debug Mode for Detailed Output**:
+   ```bash
+   python IPTV_checker.py /path/to/your/playlist.m3u8 -debug
+   ```
+   
 ### Output Format
 
 The script will output the status of each channel in the following format:
