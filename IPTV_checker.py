@@ -296,7 +296,9 @@ def parse_m3u8_file(file_path, group_title, timeout, log_file, extended_timeout,
             if max_line_length > console_width:
                 use_padding = False
 
-            for i in range(len(lines)):
+            renamed_lines = []
+            i = 0
+            while i < len(lines):
                 line = lines[i].strip()
                 if line.startswith('#EXTINF') and (group_title in line if group_title else True):
                     if i + 1 < len(lines):
@@ -321,8 +323,12 @@ def parse_m3u8_file(file_path, group_title, timeout, log_file, extended_timeout,
                                 capture_frame(next_line, output_folder, file_name)
                                 
                                 if rename:
-                                    renamed_channel_name = f"{channel_name} ({resolution} {fps}fps {video_info.split()[-1]} - {audio_info})"
-                                    line = line.replace(channel_name, renamed_channel_name)
+                                    # Create the new channel name in the desired format
+                                    renamed_channel_name = f"{channel_name} ({resolution} {video_info.split()[-1]} | {audio_info})"
+                                    extinf_parts = line.split(',', 1)
+                                    if len(extinf_parts) > 1:
+                                        extinf_parts[1] = renamed_channel_name
+                                        line = ','.join(extinf_parts)
 
                                 if split:
                                     working_channels.append((line, next_line))
@@ -331,6 +337,18 @@ def parse_m3u8_file(file_path, group_title, timeout, log_file, extended_timeout,
                                     dead_channels.append((line, next_line))
                             console_log_entry(current_channel, total_channels, channel_name, status, video_info, audio_info, max_name_length, use_padding)
                             processed_channels.add(identifier)
+
+                        # Add the processed (renamed) line and the corresponding URL to the list
+                        renamed_lines.append(line)
+                        renamed_lines.append(next_line)
+                        i += 1  # Skip the next line because it's already processed
+                    else:
+                        # If there's no URL following the EXTINF line, just add it
+                        renamed_lines.append(line)
+                else:
+                    # If it's not an EXTINF line, just keep it as is
+                    renamed_lines.append(line)
+                i += 1
 
             if split:
                 working_playlist_path = f"{base_playlist_name}_working.m3u8"
@@ -351,10 +369,8 @@ def parse_m3u8_file(file_path, group_title, timeout, log_file, extended_timeout,
                 renamed_playlist_path = f"{base_playlist_name}_renamed.m3u8"
                 with open(renamed_playlist_path, 'w', encoding='utf-8') as renamed_file:
                     renamed_file.write("#EXTM3U\n")
-                    for i in range(len(lines)):
-                        if lines[i].strip().startswith("#EXTINF"):
-                            renamed_file.write(lines[i])
-                            renamed_file.write(lines[i+1])
+                    for line in renamed_lines:
+                        renamed_file.write(line + "\n")
                 logging.info(f"Renamed playlist saved to {renamed_playlist_path}")
 
             if low_framerate_channels:
@@ -377,6 +393,7 @@ def parse_m3u8_file(file_path, group_title, timeout, log_file, extended_timeout,
         logging.error(f"File not found: {file_path}. Please check the path and try again.")
     except Exception as e:
         logging.error(f"An unexpected error occurred while processing the file: {str(e)}")
+
 
 def main():
     print_header()
